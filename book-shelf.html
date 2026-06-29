@@ -77,12 +77,18 @@
   /* Search & filter bar */
   .toolbar {
     display: flex;
+    flex-direction: column;
     gap: 8px;
     margin-bottom: 20px;
   }
 
+  .filter-row {
+    display: flex;
+    gap: 8px;
+  }
+
   .search-box {
-    flex: 1;
+    width: 100%;
     padding: 10px 14px;
     border: 1.5px solid var(--warm);
     border-radius: 8px;
@@ -97,16 +103,18 @@
   .search-box:focus { border-color: var(--accent); }
 
   .filter-btn {
-    padding: 10px 14px;
+    flex: 1;
+    padding: 10px 6px;
     border: 1.5px solid var(--warm);
     border-radius: 8px;
     background: white;
     font-family: inherit;
-    font-size: 12px;
+    font-size: 13px;
     color: var(--muted);
     cursor: pointer;
     transition: all 0.2s;
     white-space: nowrap;
+    text-align: center;
   }
 
   .filter-btn.active {
@@ -580,9 +588,11 @@
 <main>
   <div class="toolbar">
     <input type="text" class="search-box" placeholder="タイトル・著者で検索…" id="search-input">
-    <button class="filter-btn active" data-filter="all">すべて</button>
-    <button class="filter-btn" data-filter="reading">読書中</button>
-    <button class="filter-btn" data-filter="done">読了</button>
+    <div class="filter-row">
+      <button class="filter-btn active" data-filter="all">すべて</button>
+      <button class="filter-btn" data-filter="reading">読書中</button>
+      <button class="filter-btn" data-filter="done">読了</button>
+    </div>
   </div>
 
   <div class="book-list" id="book-list">
