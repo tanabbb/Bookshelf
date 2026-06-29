@@ -10,7 +10,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="ほんだな">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@400;600;700&family=Noto+Sans+JP:wght@300;400;500&display=swap');
 
@@ -630,7 +630,7 @@
     <div class="scanner-section visible" id="tab-scan">
       <button class="scan-start-btn" id="start-scan-btn">📷 カメラを起動する</button>
       <div class="scanner-box" id="scanner-box" style="display:none">
-        <div id="scanner-video-container"></div>
+        <video id="scanner-video" playsinline muted style="width:100%;height:100%;object-fit:cover;"></video>
         <div class="scanner-overlay">
           <div class="scanner-frame">
             <div class="scanner-line"></div>
@@ -822,49 +822,53 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-// ─── Scanner (QuaggaJS) ─────────────────────────────────────────────────────
+// ─── Scanner (ZXing) ────────────────────────────────────────────────────────
+let codeReader = null;
+
 document.getElementById('start-scan-btn').addEventListener('click', startScanner);
 
-function startScanner() {
+async function startScanner() {
   const box = document.getElementById('scanner-box');
   box.style.display = 'block';
   document.getElementById('start-scan-btn').style.display = 'none';
   document.getElementById('scanner-result').textContent = '';
 
-  Quagga.init({
-    inputStream: {
-      name: "Live",
-      type: "LiveStream",
-      target: document.getElementById('scanner-video-container'),
-      constraints: { facingMode: "environment", width: 640, height: 480 }
-    },
-    decoder: { readers: ["ean_reader", "ean_8_reader", "code_128_reader"] },
-    locate: true
-  }, err => {
-    if (err) {
-      document.getElementById('scanner-result').textContent = '❌ カメラを起動できませんでした。ISBNを直接入力してください。';
-      box.style.display = 'none';
-      document.getElementById('start-scan-btn').style.display = 'flex';
-      return;
-    }
-    Quagga.start();
-    scannerActive = true;
-  });
+  try {
+    codeReader = new ZXing.BrowserMultiFormatReader();
+    const videoEl = document.getElementById('scanner-video');
 
-  let lastCode = '';
-  Quagga.onDetected(result => {
-    const code = result.codeResult.code;
-    if (code === lastCode) return;
-    lastCode = code;
-    document.getElementById('scanner-result').textContent = `📗 検出: ${code}`;
-    stopScanner();
-    fetchBookByISBN(code, 'scan');
-  });
+    await codeReader.decodeFromConstraints(
+      {
+        audio: false,
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      },
+      videoEl,
+      (result, err) => {
+        if (result) {
+          const code = result.getText();
+          document.getElementById('scanner-result').textContent = `📗 検出: ${code}`;
+          if (navigator.vibrate) navigator.vibrate(100);
+          stopScanner();
+          fetchBookByISBN(code, 'scan');
+        }
+      }
+    );
+    scannerActive = true;
+  } catch(e) {
+    document.getElementById('scanner-result').textContent = '❌ カメラを起動できませんでした。ISBNを直接入力してください。';
+    box.style.display = 'none';
+    document.getElementById('start-scan-btn').style.display = 'flex';
+  }
 }
 
 function stopScanner() {
-  if (scannerActive) {
-    Quagga.stop();
+  if (codeReader) {
+    codeReader.reset();
+    codeReader = null;
     scannerActive = false;
   }
   const box = document.getElementById('scanner-box');
@@ -898,7 +902,7 @@ async function fetchBookByISBN(isbn, source) {
     if (openData && openData[0]) {
       const summary = openData[0].summary;
       title = summary.title || '';
-      author = (summary.author || '').replace(/,/g, ' ');
+      author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
       publisher = summary.publisher || '';
       cover = summary.cover || '';
     }
