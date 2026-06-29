@@ -129,6 +129,55 @@
     border-color: var(--ink);
   }
 
+
+  /* Sort bar */
+  .sort-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .sort-label { font-size: 12px; color: var(--muted); }
+  .sort-btn {
+    padding: 6px 12px;
+    border: 1.5px solid var(--warm);
+    border-radius: 99px;
+    background: white;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .sort-btn.active {
+    background: var(--ink);
+    color: var(--paper);
+    border-color: var(--ink);
+  }
+
+  /* Drag handle */
+  .drag-handle {
+    display: none;
+    padding: 0 8px;
+    color: #ccc;
+    font-size: 18px;
+    cursor: grab;
+    touch-action: none;
+    align-items: center;
+  }
+  .drag-handle.visible { display: flex; }
+  .book-card.dragging { opacity: 0.4; }
+  .book-card.drag-over { border: 2px dashed var(--accent); }
+
+  /* Genre badge */
+  .genre-badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: #e8f0fe;
+    color: #3b6e8c;
+  }
+
   /* Book list */
   .book-list {
     display: flex;
@@ -599,6 +648,13 @@
       <button class="filter-btn" data-filter="reading">読書中</button>
       <button class="filter-btn" data-filter="done">読了</button>
     </div>
+    <div class="sort-row">
+      <span class="sort-label">並び替え：</span>
+      <button class="sort-btn active" data-sort="manual">手動</button>
+      <button class="sort-btn" data-sort="author">著者名</button>
+      <button class="sort-btn" data-sort="genre">ジャンル</button>
+      <button class="sort-btn" data-sort="date">登録日</button>
+    </div>
   </div>
 
   <div class="book-list" id="book-list">
@@ -669,6 +725,10 @@
         <input type="text" id="f-publisher" placeholder="出版社名">
       </div>
       <div class="form-group">
+        <label>ジャンル</label>
+        <input type="text" id="f-genre" placeholder="例：小説、料理、ビジネス…">
+      </div>
+      <div class="form-group">
         <label>ステータス</label>
         <select id="f-status">
           <option value="unread">📚 積読（未読）</option>
@@ -696,6 +756,7 @@
 const STORAGE_KEY = 'hondana_books';
 let books = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
 let currentFilter = 'all';
+let currentSort = 'manual';
 let scannerActive = false;
 
 const spineColors = ['#3b6e8c','#7b4f8e','#c4603a','#4a8c5c','#8c6b3a','#5c7a8c','#8c3b5c'];
@@ -719,9 +780,21 @@ function render() {
   const q = document.getElementById('search-input').value.toLowerCase();
   let list = books.filter(b => {
     const matchFilter = currentFilter === 'all' || b.status === currentFilter;
-    const matchQ = !q || b.title.toLowerCase().includes(q) || (b.author||'').toLowerCase().includes(q);
+    const matchQ = !q || b.title.toLowerCase().includes(q) || (b.author||'').toLowerCase().includes(q) || (b.genre||'').toLowerCase().includes(q);
     return matchFilter && matchQ;
   });
+
+  // sort
+  if (currentSort === 'author') {
+    list.sort((a, b) => (a.author||'').localeCompare(b.author||'', 'ja'));
+  } else if (currentSort === 'genre') {
+    list.sort((a, b) => (a.genre||'zzz').localeCompare(b.genre||'zzz', 'ja'));
+  } else if (currentSort === 'date') {
+    list.sort((a, b) => (b.order||0) - (a.order||0));
+  } else {
+    // manual: orderプロパティの昇順
+    list.sort((a, b) => (a.order||0) - (b.order||0));
+  }
 
   document.getElementById('total-count').textContent = books.length;
   const el = document.getElementById('book-list');
@@ -736,9 +809,11 @@ function render() {
 
   const statusLabel = { unread: '積読', reading: '読書中', done: '読了' };
   const statusClass = { unread: 'status-unread', reading: 'status-reading', done: 'status-done' };
+  const isManual = currentSort === 'manual';
 
   el.innerHTML = list.map(b => `
-    <div class="book-card" data-id="${b.id}">
+    <div class="book-card" data-id="${b.id}" draggable="${isManual}">
+      <div class="drag-handle ${isManual ? 'visible' : ''}" title="ドラッグで並び替え">⋮⋮</div>
       <div class="book-spine" style="background:${spineColor(b.title)}"></div>
       <div class="book-cover-thumb">
         ${b.cover
@@ -751,6 +826,7 @@ function render() {
         <div class="book-author">${esc(b.author || '著者不明')}</div>
         <div class="book-meta">
           <span class="status-badge ${statusClass[b.status]} status-cycle" data-id="${b.id}">${statusLabel[b.status]}</span>
+          ${b.genre ? `<span class="genre-badge">${esc(b.genre)}</span>` : ''}
           <span class="book-date">${b.date}</span>
         </div>
       </div>
@@ -773,6 +849,76 @@ function render() {
       save(); render();
     });
   });
+
+  // drag & drop (manual sort)
+  if (isManual) initDrag();
+}
+
+function initDrag() {
+  const cards = document.querySelectorAll('.book-card[draggable="true"]');
+  let dragSrc = null;
+
+  cards.forEach(card => {
+    card.addEventListener('dragstart', e => {
+      dragSrc = card;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      document.querySelectorAll('.book-card').forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      document.querySelectorAll('.book-card').forEach(c => c.classList.remove('drag-over'));
+      if (card !== dragSrc) card.classList.add('drag-over');
+    });
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      if (!dragSrc || dragSrc === card) return;
+      card.classList.remove('drag-over');
+
+      // orderを入れ替えてbooksを並び替え
+      const srcId = dragSrc.dataset.id;
+      const tgtId = card.dataset.id;
+      const srcBook = books.find(b => b.id === srcId);
+      const tgtBook = books.find(b => b.id === tgtId);
+      if (!srcBook || !tgtBook) return;
+      const tmp = srcBook.order;
+      srcBook.order = tgtBook.order;
+      tgtBook.order = tmp;
+      save(); render();
+    });
+
+    // タッチ対応（長押し→スクロール無効→ドラッグ）
+    let touchDragSrc = null;
+    card.querySelector('.drag-handle').addEventListener('touchstart', e => {
+      touchDragSrc = card;
+      card.classList.add('dragging');
+    }, { passive: true });
+
+    card.querySelector('.drag-handle').addEventListener('touchmove', e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.book-card');
+      document.querySelectorAll('.book-card').forEach(c => c.classList.remove('drag-over'));
+      if (el && el !== touchDragSrc) el.classList.add('drag-over');
+    }, { passive: false });
+
+    card.querySelector('.drag-handle').addEventListener('touchend', e => {
+      card.classList.remove('dragging');
+      const over = document.querySelector('.book-card.drag-over');
+      document.querySelectorAll('.book-card').forEach(c => c.classList.remove('drag-over'));
+      if (!over || !touchDragSrc || over === touchDragSrc) return;
+      const srcBook = books.find(b => b.id === touchDragSrc.dataset.id);
+      const tgtBook = books.find(b => b.id === over.dataset.id);
+      if (!srcBook || !tgtBook) return;
+      const tmp = srcBook.order;
+      srcBook.order = tgtBook.order;
+      tgtBook.order = tmp;
+      save(); render();
+    });
+  });
 }
 
 function esc(s) {
@@ -785,6 +931,15 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     currentFilter = btn.dataset.filter;
+    render();
+  });
+});
+
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSort = btn.dataset.sort;
     render();
   });
 });
@@ -963,6 +1118,7 @@ document.getElementById('save-btn').addEventListener('click', () => {
       b.memo = document.getElementById('f-memo').value.trim();
       b.cover = document.getElementById('f-cover').value;
       b.isbn = document.getElementById('f-isbn').value;
+      b.genre = document.getElementById('f-genre').value.trim();
     }
     showToast('✏️ 更新しました');
   } else {
@@ -975,7 +1131,9 @@ document.getElementById('save-btn').addEventListener('click', () => {
       memo: document.getElementById('f-memo').value.trim(),
       cover: document.getElementById('f-cover').value,
       isbn: document.getElementById('f-isbn').value,
-      date: today
+      genre: document.getElementById('f-genre').value.trim(),
+      date: today,
+      order: Date.now()
     });
     showToast('📚 本棚に追加しました！');
   }
@@ -996,6 +1154,7 @@ function editBook(id) {
     document.getElementById('f-memo').value = b.memo || '';
     document.getElementById('f-cover').value = b.cover || '';
     document.getElementById('f-isbn').value = b.isbn || '';
+    document.getElementById('f-genre').value = b.genre || '';
     document.getElementById('edit-id').value = b.id;
     document.getElementById('save-btn').textContent = '変更を保存する';
     // switch to manual tab
@@ -1014,7 +1173,7 @@ function deleteBook(id) {
 }
 
 function clearForm() {
-  ['f-title','f-author','f-publisher','f-memo','f-cover','f-isbn','edit-id','isbn-input'].forEach(id => {
+  ['f-title','f-author','f-publisher','f-genre','f-memo','f-cover','f-isbn','edit-id','isbn-input'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
