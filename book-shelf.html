@@ -872,38 +872,57 @@ async function fetchBookByISBN(isbn, source) {
   const fetchId = source === 'scan' ? 'scan-fetching' : 'isbn-fetching';
   document.getElementById(fetchId).classList.add('show');
 
+  let title = '', author = '', publisher = '', cover = '';
+
   try {
-    // Google Books API (no key needed for basic use)
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-    const data = await res.json();
+    // 1st: OpenBD（日本の書籍に強い）
+    const openRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
+    const openData = await openRes.json();
 
-    if (data.totalItems === 0) {
-      showToast('書籍が見つかりませんでした。手動で入力してください。');
-      document.getElementById(fetchId).classList.remove('show');
-      return;
+    if (openData && openData[0]) {
+      const summary = openData[0].summary;
+      title = summary.title || '';
+      author = summary.author || '';
+      publisher = summary.publisher || '';
+      cover = summary.cover || '';
     }
+  } catch(e) {}
 
-    const info = data.items[0].volumeInfo;
-    document.getElementById('f-title').value = info.title || '';
-    document.getElementById('f-author').value = (info.authors || []).join(', ');
-    document.getElementById('f-publisher').value = info.publisher || '';
-    document.getElementById('f-isbn').value = isbn;
-    const thumb = info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
-    document.getElementById('f-cover').value = thumb;
-
-    showToast('✅ 書籍情報を取得しました！');
-
-    // Switch to form tab
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelector('[data-tab="manual"]').classList.add('active');
-    document.getElementById('tab-scan').classList.remove('visible');
-    document.getElementById('tab-isbn').classList.remove('visible');
-
-  } catch(e) {
-    showToast('取得に失敗しました。手動で入力してください。');
+  // 2nd: Google Books（カバーがない場合など補完）
+  if (!title) {
+    try {
+      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      const gData = await gRes.json();
+      if (gData.totalItems > 0) {
+        const info = gData.items[0].volumeInfo;
+        title = title || info.title || '';
+        author = author || (info.authors || []).join(', ');
+        publisher = publisher || info.publisher || '';
+        cover = cover || info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
+      }
+    } catch(e) {}
   }
 
   document.getElementById(fetchId).classList.remove('show');
+
+  if (!title) {
+    showToast('書籍が見つかりませんでした。手動で入力してください。');
+    return;
+  }
+
+  document.getElementById('f-title').value = title;
+  document.getElementById('f-author').value = author;
+  document.getElementById('f-publisher').value = publisher;
+  document.getElementById('f-isbn').value = isbn;
+  document.getElementById('f-cover').value = cover;
+
+  showToast('✅ 書籍情報を取得しました！');
+
+  // Switch to form tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('[data-tab="manual"]').classList.add('active');
+  document.getElementById('tab-scan').classList.remove('visible');
+  document.getElementById('tab-isbn').classList.remove('visible');
 }
 
 // ─── Save ────────────────────────────────────────────────────────────────────
