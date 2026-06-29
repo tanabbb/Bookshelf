@@ -898,7 +898,7 @@ async function fetchBookByISBN(isbn, source) {
     if (openData && openData[0]) {
       const summary = openData[0].summary;
       title = summary.title || '';
-      author = summary.author || '';
+      author = (summary.author || '').replace(/,/g, ' ');
       publisher = summary.publisher || '';
       cover = summary.cover || '';
     }
@@ -912,7 +912,7 @@ async function fetchBookByISBN(isbn, source) {
       if (gData.totalItems > 0) {
         const info = gData.items[0].volumeInfo;
         title = title || info.title || '';
-        author = author || (info.authors || []).join(', ');
+        author = author || (info.authors || []).join(' ');
         publisher = publisher || info.publisher || '';
         cover = cover || info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
       }
