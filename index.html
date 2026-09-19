@@ -253,7 +253,7 @@
   }
 
   .status-badge {
-    font-size: 12px;
+    font-size: 10px;
     padding: 2px 8px;
     border-radius: 99px;
     font-weight: 500;
@@ -669,6 +669,21 @@
 
 <button class="fab" id="add-btn">＋ 本を追加</button>
 
+<!-- Scan Confirm Modal -->
+<div class="modal-backdrop" id="scan-confirm-modal">
+  <div class="modal" style="padding-bottom:24px">
+    <div class="modal-handle"></div>
+    <div class="modal-title">この本を登録しますか？</div>
+    <div id="scan-confirm-cover" style="width:80px;height:110px;margin:0 auto 16px;background:var(--warm);border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:36px;">📕</div>
+    <div id="scan-confirm-title" style="font-family:'Noto Serif JP',serif;font-size:16px;font-weight:700;text-align:center;margin-bottom:4px;"></div>
+    <div id="scan-confirm-author" style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;"></div>
+    <div style="display:flex;gap:10px;">
+      <button id="scan-confirm-skip" style="flex:1;padding:12px;border:1.5px solid var(--warm);border-radius:10px;background:white;font-family:inherit;font-size:14px;cursor:pointer;">スキップ</button>
+      <button id="scan-confirm-ok" style="flex:2;padding:12px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;">登録して次へ ▶</button>
+    </div>
+  </div>
+</div>
+
 <!-- Add Modal -->
 <div class="modal-backdrop" id="add-modal">
   <div class="modal">
@@ -807,7 +822,7 @@ function render() {
   }
   empty.style.display = 'none';
 
-  const statusLabel = { unread: '未読', reading: '読書中', done: '読了' };
+  const statusLabel = { unread: '積読', reading: '読書中', done: '読了' };
   const statusClass = { unread: 'status-unread', reading: 'status-reading', done: 'status-done' };
   const isManual = currentSort === 'manual';
 
@@ -979,6 +994,7 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 // ─── Scanner (ZXing) ────────────────────────────────────────────────────────
 let codeReader = null;
+let scanPaused = false;
 
 document.getElementById('start-scan-btn').addEventListener('click', startScanner);
 
@@ -1003,12 +1019,12 @@ async function startScanner() {
       },
       videoEl,
       (result, err) => {
-        if (result) {
+        if (result && !scanPaused) {
           const code = result.getText();
+          scanPaused = true;
           document.getElementById('scanner-result').textContent = `📗 検出: ${code}`;
           if (navigator.vibrate) navigator.vibrate(100);
-          stopScanner();
-          fetchBookByISBN(code, 'scan');
+          showScanConfirm(code);
         }
       }
     );
@@ -1030,6 +1046,84 @@ function stopScanner() {
   if (box) box.style.display = 'none';
   const btn = document.getElementById('start-scan-btn');
   if (btn) btn.style.display = 'flex';
+}
+
+
+// ─── Scan Confirm ────────────────────────────────────────────────────────────
+async function showScanConfirm(isbn) {
+  // 書籍情報を取得
+  document.getElementById('scan-fetching').classList.add('show');
+  let title = '', author = '', publisher = '', cover = '', genre = '';
+
+  try {
+    const openRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
+    const openData = await openRes.json();
+    if (openData && openData[0]) {
+      const summary = openData[0].summary;
+      title = summary.title || '';
+      author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
+      publisher = summary.publisher || '';
+      cover = summary.cover || '';
+    }
+  } catch(e) {}
+
+  if (!title) {
+    try {
+      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+      const gData = await gRes.json();
+      if (gData.totalItems > 0) {
+        const info = gData.items[0].volumeInfo;
+        title = info.title || '';
+        author = (info.authors || []).join(' ');
+        publisher = info.publisher || '';
+        cover = info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
+      }
+    } catch(e) {}
+  }
+
+  document.getElementById('scan-fetching').classList.remove('show');
+
+  if (!title) {
+    showToast('書籍が見つかりませんでした。スキップします。');
+    scanPaused = false;
+    return;
+  }
+
+  // 確認モーダルに情報をセット
+  document.getElementById('scan-confirm-title').textContent = title;
+  document.getElementById('scan-confirm-author').textContent = author || '著者不明';
+  const coverEl = document.getElementById('scan-confirm-cover');
+  if (cover) {
+    coverEl.innerHTML = `<img src="${cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">`;
+  } else {
+    coverEl.innerHTML = '📕';
+  }
+
+  document.getElementById('scan-confirm-modal').classList.add('open');
+
+  // OKボタン
+  document.getElementById('scan-confirm-ok').onclick = () => {
+    const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'});
+    books.unshift({
+      id: Date.now().toString(),
+      title, author, publisher, cover, isbn,
+      genre: '',
+      status: 'unread',
+      memo: '',
+      date: today,
+      order: Date.now()
+    });
+    save(); render();
+    showToast(`📚 「${title}」を登録しました！`);
+    document.getElementById('scan-confirm-modal').classList.remove('open');
+    scanPaused = false;
+  };
+
+  // スキップボタン
+  document.getElementById('scan-confirm-skip').onclick = () => {
+    document.getElementById('scan-confirm-modal').classList.remove('open');
+    scanPaused = false;
+  };
 }
 
 // ─── ISBN lookup ─────────────────────────────────────────────────────────────
