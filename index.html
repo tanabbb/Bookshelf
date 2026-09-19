@@ -711,7 +711,7 @@
       <div class="fetching-indicator" id="scan-fetching">📖 書籍情報を取得中…</div>
       <div id="scan-count-bar" style="display:none;margin-top:10px;text-align:center;">
         <span id="scan-count-label" style="font-size:13px;color:var(--muted);"></span>
-        <button id="scan-done-btn" style="margin-left:12px;padding:8px 18px;background:var(--accent);color:white;border:none;border-radius:99px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">完了して確認する</button>
+        <button id="scan-done-btn" onclick="showBulkConfirm()" style="margin-left:12px;padding:8px 18px;background:var(--accent);color:white;border:none;border-radius:99px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">完了して確認する</button>
       </div>
     </div>
 
@@ -972,9 +972,6 @@ function openModal() {
 function closeModal() {
   document.getElementById('add-modal').classList.remove('open');
   stopScanner();
-  scannedBooks = [];
-  scannedISBNs = new Set();
-  document.getElementById('scan-count-bar').style.display = 'none';
 }
 
 document.getElementById('add-btn').addEventListener('click', openModal);
@@ -1004,7 +1001,6 @@ let scannedBooks = [];
 let scannedISBNs = new Set();
 
 document.getElementById('start-scan-btn').addEventListener('click', startScanner);
-document.getElementById('scan-done-btn').addEventListener('click', showBulkConfirm);
 
 async function startScanner() {
   const box = document.getElementById('scanner-box');
