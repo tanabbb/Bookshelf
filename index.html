@@ -669,17 +669,15 @@
 
 <button class="fab" id="add-btn">＋ 本を追加</button>
 
-<!-- Scan Confirm Modal -->
+<!-- Scan Bulk Confirm Modal -->
 <div class="modal-backdrop" id="scan-confirm-modal">
-  <div class="modal" style="padding-bottom:24px">
+  <div class="modal" style="padding-bottom:24px;max-height:85vh;overflow-y:auto;">
     <div class="modal-handle"></div>
-    <div class="modal-title">この本を登録しますか？</div>
-    <div id="scan-confirm-cover" style="width:80px;height:110px;margin:0 auto 16px;background:var(--warm);border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:36px;">📕</div>
-    <div id="scan-confirm-title" style="font-family:'Noto Serif JP',serif;font-size:16px;font-weight:700;text-align:center;margin-bottom:4px;"></div>
-    <div id="scan-confirm-author" style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:20px;"></div>
+    <div class="modal-title">読み取った本を確認</div>
+    <div id="scan-confirm-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;"></div>
     <div style="display:flex;gap:10px;">
-      <button id="scan-confirm-skip" style="flex:1;padding:12px;border:1.5px solid var(--warm);border-radius:10px;background:white;font-family:inherit;font-size:14px;cursor:pointer;">スキップ</button>
-      <button id="scan-confirm-ok" style="flex:2;padding:12px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;">登録して次へ ▶</button>
+      <button id="scan-confirm-cancel" style="flex:1;padding:12px;border:1.5px solid var(--warm);border-radius:10px;background:white;font-family:inherit;font-size:14px;cursor:pointer;">キャンセル</button>
+      <button id="scan-confirm-ok" style="flex:2;padding:12px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;">まとめて登録する</button>
     </div>
   </div>
 </div>
@@ -711,6 +709,10 @@
       </div>
       <div id="scanner-result"></div>
       <div class="fetching-indicator" id="scan-fetching">📖 書籍情報を取得中…</div>
+      <div id="scan-count-bar" style="display:none;margin-top:10px;text-align:center;">
+        <span id="scan-count-label" style="font-size:13px;color:var(--muted);"></span>
+        <button id="scan-done-btn" style="margin-left:12px;padding:8px 18px;background:var(--accent);color:white;border:none;border-radius:99px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">完了して確認する</button>
+      </div>
     </div>
 
     <!-- ISBN tab -->
@@ -970,6 +972,9 @@ function openModal() {
 function closeModal() {
   document.getElementById('add-modal').classList.remove('open');
   stopScanner();
+  scannedBooks = [];
+  scannedISBNs = new Set();
+  document.getElementById('scan-count-bar').style.display = 'none';
 }
 
 document.getElementById('add-btn').addEventListener('click', openModal);
@@ -995,8 +1000,11 @@ document.querySelectorAll('.tab').forEach(tab => {
 // ─── Scanner (ZXing) ────────────────────────────────────────────────────────
 let codeReader = null;
 let scanPaused = false;
+let scannedBooks = [];
+let scannedISBNs = new Set();
 
 document.getElementById('start-scan-btn').addEventListener('click', startScanner);
+document.getElementById('scan-done-btn').addEventListener('click', showBulkConfirm);
 
 async function startScanner() {
   const box = document.getElementById('scanner-box');
@@ -1021,10 +1029,11 @@ async function startScanner() {
       (result, err) => {
         if (result && !scanPaused) {
           const code = result.getText();
+          if (scannedISBNs.has(code)) return;
           scanPaused = true;
-          document.getElementById('scanner-result').textContent = `📗 検出: ${code}`;
           if (navigator.vibrate) navigator.vibrate(100);
-          showScanConfirm(code);
+          document.getElementById('scanner-result').textContent = `📗 検出: ${code}`;
+          addScannedISBN(code);
         }
       }
     );
@@ -1049,11 +1058,10 @@ function stopScanner() {
 }
 
 
-// ─── Scan Confirm ────────────────────────────────────────────────────────────
-async function showScanConfirm(isbn) {
-  // 書籍情報を取得
+// ─── Scan Bulk Mode ──────────────────────────────────────────────────────────
+async function addScannedISBN(isbn) {
   document.getElementById('scan-fetching').classList.add('show');
-  let title = '', author = '', publisher = '', cover = '', genre = '';
+  let title = '', author = '', publisher = '', cover = '';
 
   try {
     const openRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
@@ -1085,45 +1093,73 @@ async function showScanConfirm(isbn) {
 
   if (!title) {
     showToast('書籍が見つかりませんでした。スキップします。');
-    scanPaused = false;
+  } else {
+    scannedISBNs.add(isbn);
+    scannedBooks.push({ isbn, title, author, publisher, cover });
+    const bar = document.getElementById('scan-count-bar');
+    bar.style.display = 'block';
+    document.getElementById('scan-count-label').textContent = `${scannedBooks.length}冊読み取り済み`;
+    showToast(`📗 「${title}」を読み取りました`);
+  }
+
+  scanPaused = false;
+}
+
+function showBulkConfirm() {
+  if (scannedBooks.length === 0) {
+    showToast('まだ読み取った本がありません');
     return;
   }
 
-  // 確認モーダルに情報をセット
-  document.getElementById('scan-confirm-title').textContent = title;
-  document.getElementById('scan-confirm-author').textContent = author || '著者不明';
-  const coverEl = document.getElementById('scan-confirm-cover');
-  if (cover) {
-    coverEl.innerHTML = `<img src="${cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">`;
-  } else {
-    coverEl.innerHTML = '📕';
-  }
+  const list = document.getElementById('scan-confirm-list');
+  list.innerHTML = scannedBooks.map((b, i) => `
+    <div style="display:flex;align-items:center;gap:10px;background:white;border-radius:10px;padding:10px;position:relative;">
+      <div style="width:44px;height:60px;background:var(--warm);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">
+        ${b.cover ? `<img src="${b.cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">` : '📕'}
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(b.title)}</div>
+        <div style="font-size:12px;color:var(--muted);">${esc(b.author || '著者不明')}</div>
+      </div>
+      <button onclick="removeScanned(${i})" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ccc;flex-shrink:0;">✕</button>
+    </div>
+  `).join('');
 
   document.getElementById('scan-confirm-modal').classList.add('open');
 
-  // OKボタン
   document.getElementById('scan-confirm-ok').onclick = () => {
     const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'});
-    books.unshift({
-      id: Date.now().toString(),
-      title, author, publisher, cover, isbn,
-      genre: '',
-      status: 'unread',
-      memo: '',
-      date: today,
-      order: Date.now()
+    scannedBooks.forEach(b => {
+      books.unshift({
+        id: Date.now().toString() + Math.random(),
+        title: b.title, author: b.author, publisher: b.publisher,
+        cover: b.cover, isbn: b.isbn,
+        genre: '', status: 'unread', memo: '',
+        date: today, order: Date.now()
+      });
     });
     save(); render();
-    showToast(`📚 「${title}」を登録しました！`);
+    showToast(`📚 ${scannedBooks.length}冊を登録しました！`);
     document.getElementById('scan-confirm-modal').classList.remove('open');
-    scanPaused = false;
+    scannedBooks = [];
+    scannedISBNs = new Set();
+    document.getElementById('scan-count-bar').style.display = 'none';
+    closeModal();
   };
 
-  // スキップボタン
-  document.getElementById('scan-confirm-skip').onclick = () => {
+  document.getElementById('scan-confirm-cancel').onclick = () => {
     document.getElementById('scan-confirm-modal').classList.remove('open');
-    scanPaused = false;
   };
+}
+
+function removeScanned(i) {
+  scannedISBNs.delete(scannedBooks[i].isbn);
+  scannedBooks.splice(i, 1);
+  showBulkConfirm();
+  if (scannedBooks.length === 0) {
+    document.getElementById('scan-confirm-modal').classList.remove('open');
+    document.getElementById('scan-count-bar').style.display = 'none';
+  }
 }
 
 // ─── ISBN lookup ─────────────────────────────────────────────────────────────
