@@ -930,6 +930,26 @@ function render() {
 
   // drag & drop (manual sort)
   if (isManual) initDrag();
+
+  // 選択モード用クリックイベント
+  document.querySelectorAll('.book-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (!selectMode) return;
+      // 編集・削除ボタンは無視
+      if (e.target.closest('.book-actions button')) return;
+      e.stopPropagation();
+      const id = card.dataset.id;
+      if (!id) return;
+      if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+        card.classList.remove('selected');
+      } else {
+        selectedIds.add(id);
+        card.classList.add('selected');
+      }
+      document.getElementById('sel-count-label').textContent = `${selectedIds.size}冊選択中`;
+    });
+  });
 }
 
 function initDrag() {
