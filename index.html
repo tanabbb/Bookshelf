@@ -158,12 +158,13 @@
   /* Drag handle */
   .drag-handle {
     display: none;
-    padding: 0 8px;
+    padding: 4px 2px;
     color: #ccc;
     font-size: 18px;
     cursor: grab;
     touch-action: none;
     align-items: center;
+    justify-content: center;
   }
   .drag-handle.visible { display: flex; }
   .book-card.dragging { opacity: 0.4; }
@@ -651,6 +652,7 @@
     <div class="sort-row">
       <span class="sort-label">並び替え：</span>
       <button class="sort-btn active" data-sort="manual">手動</button>
+      <button class="sort-btn" data-sort="title">書名</button>
       <button class="sort-btn" data-sort="author">著者名</button>
       <button class="sort-btn" data-sort="genre">ジャンル</button>
       <button class="sort-btn" data-sort="date">登録日</button>
@@ -677,7 +679,7 @@
     <div id="scan-confirm-list" style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;"></div>
     <div style="display:flex;gap:10px;">
       <button id="scan-confirm-cancel" style="flex:1;padding:12px;border:1.5px solid var(--warm);border-radius:10px;background:white;font-family:inherit;font-size:14px;cursor:pointer;">キャンセル</button>
-      <button id="scan-confirm-ok" style="flex:2;padding:12px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;">まとめて登録する</button>
+      <button id="scan-confirm-ok" onclick="bulkRegister()" style="flex:2;padding:12px;background:var(--accent);color:white;border:none;border-radius:10px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;">まとめて登録する</button>
     </div>
   </div>
 </div>
@@ -743,7 +745,8 @@
       </div>
       <div class="form-group">
         <label>ジャンル</label>
-        <input type="text" id="f-genre" placeholder="例：小説、料理、ビジネス…">
+        <input type="text" id="f-genre" placeholder="例：小説、料理、ビジネス…" list="genre-list" autocomplete="off">
+        <datalist id="genre-list"></datalist>
       </div>
       <div class="form-group">
         <label>ステータス</label>
@@ -802,7 +805,9 @@ function render() {
   });
 
   // sort
-  if (currentSort === 'author') {
+  if (currentSort === 'title') {
+    list.sort((a, b) => (a.title||'').localeCompare(b.title||'', 'ja'));
+  } else if (currentSort === 'author') {
     list.sort((a, b) => (a.author||'').localeCompare(b.author||'', 'ja'));
   } else if (currentSort === 'genre') {
     list.sort((a, b) => (a.genre||'zzz').localeCompare(b.genre||'zzz', 'ja'));
@@ -830,7 +835,6 @@ function render() {
 
   el.innerHTML = list.map(b => `
     <div class="book-card" data-id="${b.id}" draggable="${isManual}">
-      <div class="drag-handle ${isManual ? 'visible' : ''}" title="ドラッグで並び替え">⋮⋮</div>
       <div class="book-spine" style="background:${spineColor(b.title)}"></div>
       <div class="book-cover-thumb">
         ${b.cover
@@ -850,6 +854,7 @@ function render() {
       <div class="book-actions">
         <button class="icon-btn" title="編集" onclick="editBook('${b.id}')">✏️</button>
         <button class="icon-btn" title="削除" onclick="deleteBook('${b.id}')">🗑️</button>
+        <div class="drag-handle ${isManual ? 'visible' : ''}" title="ドラッグで並び替え">⋮⋮</div>
       </div>
     </div>
   `).join('');
@@ -967,6 +972,13 @@ document.getElementById('search-input').addEventListener('input', render);
 function openModal() {
   document.getElementById('add-modal').classList.add('open');
   clearForm();
+  updateGenreList();
+}
+
+function updateGenreList() {
+  const genres = [...new Set(books.map(b => b.genre).filter(Boolean))];
+  const dl = document.getElementById('genre-list');
+  dl.innerHTML = genres.map(g => `<option value="${esc(g)}">`).join('');
 }
 
 function closeModal() {
@@ -1064,7 +1076,7 @@ async function addScannedISBN(isbn) {
     const openData = await openRes.json();
     if (openData && openData[0]) {
       const summary = openData[0].summary;
-      title = summary.title || '';
+      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：].*/g, '').trim();
       author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
       publisher = summary.publisher || '';
       cover = summary.cover || '';
@@ -1099,6 +1111,27 @@ async function addScannedISBN(isbn) {
   }
 
   scanPaused = false;
+}
+
+function bulkRegister() {
+  const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'});
+  const count = scannedBooks.length;
+  scannedBooks.forEach(b => {
+    books.unshift({
+      id: Date.now().toString() + Math.random(),
+      title: b.title, author: b.author, publisher: b.publisher,
+      cover: b.cover, isbn: b.isbn,
+      genre: '', status: 'unread', memo: '',
+      date: today, order: Date.now()
+    });
+  });
+  save(); render();
+  showToast(`📚 ${count}冊を登録しました！`);
+  document.getElementById('scan-confirm-modal').classList.remove('open');
+  scannedBooks = [];
+  scannedISBNs = new Set();
+  document.getElementById('scan-count-bar').style.display = 'none';
+  closeModal();
 }
 
 function showBulkConfirm() {
@@ -1182,7 +1215,7 @@ async function fetchBookByISBN(isbn, source) {
 
     if (openData && openData[0]) {
       const summary = openData[0].summary;
-      title = summary.title || '';
+      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：].*/g, '').trim();
       author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
       publisher = summary.publisher || '';
       cover = summary.cover || '';
