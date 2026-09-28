@@ -1193,8 +1193,10 @@ async function addScannedISBN(isbn) {
 
 function bulkRegister() {
   const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'});
-  const count = scannedBooks.length;
-  scannedBooks.forEach(b => {
+  const checked = window._scanChecked || new Set(scannedBooks.map((_,i)=>i));
+  const toRegister = scannedBooks.filter((_, i) => checked.has(i));
+  if (toRegister.length === 0) { showToast('登録する本を選択してください'); return; }
+  toRegister.forEach(b => {
     books.unshift({
       id: Date.now().toString() + Math.random(),
       title: b.title, author: b.author, publisher: b.publisher,
@@ -1206,10 +1208,11 @@ function bulkRegister() {
     });
   });
   save(); render();
-  showToast(`📚 ${count}冊を登録しました！`);
+  showToast(`📚 ${toRegister.length}冊を登録しました！`);
   document.getElementById('scan-confirm-modal').classList.remove('open');
   scannedBooks = [];
   scannedISBNs = new Set();
+  window._scanChecked = null;
   document.getElementById('scan-count-bar').style.display = 'none';
   closeModal();
 }
@@ -1222,32 +1225,41 @@ function showBulkConfirm() {
 
   const list = document.getElementById('scan-confirm-list');
   const seriesOptions = [...new Set(books.map(b => b.series).filter(Boolean))];
-  list.innerHTML = scannedBooks.map((b, i) => `
-    <div style="background:white;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+  const checkedSet = window._scanChecked || new Set(scannedBooks.map((_, i) => i));
+  window._scanChecked = checkedSet;
+
+  list.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <span style="font-size:12px;color:var(--muted);">${scannedBooks.length}冊読み取り済み</span>
+      <button onclick="deleteCheckedScanned()" style="font-size:12px;color:#e53935;background:none;border:none;cursor:pointer;padding:4px 8px;">選択削除</button>
+    </div>
+  ` + scannedBooks.map((b, i) => `
+    <div style="background:white;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;opacity:${checkedSet.has(i)?1:0.4};">
       <div style="display:flex;align-items:center;gap:10px;">
+        <input type="checkbox" ${checkedSet.has(i)?'checked':''} onchange="toggleScanCheck(${i},this.checked)"
+          style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;">
         <div style="width:44px;height:60px;background:var(--warm);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">
           ${b.cover ? `<img src="${b.cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">` : '📕'}
         </div>
         <div style="flex:1;min-width:0;">
-          <input value="${esc(b.title)}" onchange="scannedBooks[${i}].title=this.value"
+          <input value="${esc(b.title)}" oninput="scannedBooks[${i}].title=this.value"
             style="width:100%;font-size:14px;font-weight:600;border:none;border-bottom:1px solid var(--warm);background:none;padding:2px 0;font-family:inherit;color:var(--ink);outline:none;">
-          <input value="${esc(b.author||'')}" placeholder="著者名" onchange="scannedBooks[${i}].author=this.value"
+          <input value="${esc(b.author||'')}" placeholder="著者名" oninput="scannedBooks[${i}].author=this.value"
             style="width:100%;font-size:12px;color:var(--muted);border:none;background:none;padding:2px 0;font-family:inherit;outline:none;margin-top:4px;">
         </div>
-        <button onclick="removeScanned(${i})" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ccc;flex-shrink:0;align-self:flex-start;">✕</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;padding-top:4px;border-top:1px solid var(--warm);">
-        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;">
-          <input type="checkbox" ${b.series ? 'checked' : ''} onchange="toggleScannedSeries(${i}, this.checked)"
-            style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
-          シリーズ化する
+      <div style="display:flex;align-items:center;gap:8px;padding-top:6px;border-top:1px solid var(--warm);flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" ${b.series!==undefined?'checked':''} onchange="toggleScannedSeries(${i},this.checked)"
+            style="width:15px;height:15px;accent-color:var(--accent);cursor:pointer;">
+          シリーズ化
         </label>
         ${b.series !== undefined ? `
-        <input value="${esc(b.series||b.title)}" placeholder="シリーズ名" onchange="scannedBooks[${i}].series=this.value"
-          list="scan-series-list"
-          style="flex:1;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 8px;font-family:inherit;outline:none;" ${b.series===undefined?'disabled':''}>
-        <input type="number" value="${esc(b.volume||'')}" placeholder="巻" min="1" onchange="scannedBooks[${i}].volume=this.value"
-          style="width:52px;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 6px;font-family:inherit;outline:none;">
+          <input value="${esc(b.series||b.title)}" placeholder="シリーズ名" oninput="scannedBooks[${i}].series=this.value"
+            list="scan-series-list"
+            style="flex:1;min-width:80px;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 8px;font-family:inherit;outline:none;">
+          <input type="number" value="${esc(b.volume||'')}" placeholder="巻" min="1" oninput="scannedBooks[${i}].volume=this.value"
+            style="width:52px;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 6px;font-family:inherit;outline:none;">
         ` : ''}
       </div>
     </div>
@@ -1255,29 +1267,32 @@ function showBulkConfirm() {
 
   document.getElementById('scan-confirm-modal').classList.add('open');
 
-  document.getElementById('scan-confirm-ok').onclick = () => {
-    const today = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'2-digit',day:'2-digit'});
-    scannedBooks.forEach(b => {
-      books.unshift({
-        id: Date.now().toString() + Math.random(),
-        title: b.title, author: b.author, publisher: b.publisher,
-        cover: b.cover, isbn: b.isbn,
-        genre: '', status: 'unread', memo: '',
-        date: today, order: Date.now()
-      });
-    });
-    save(); render();
-    showToast(`📚 ${scannedBooks.length}冊を登録しました！`);
-    document.getElementById('scan-confirm-modal').classList.remove('open');
-    scannedBooks = [];
-    scannedISBNs = new Set();
-    document.getElementById('scan-count-bar').style.display = 'none';
-    closeModal();
-  };
-
   document.getElementById('scan-confirm-cancel').onclick = () => {
     document.getElementById('scan-confirm-modal').classList.remove('open');
   };
+}
+
+function toggleScanCheck(i, checked) {
+  if (!window._scanChecked) window._scanChecked = new Set(scannedBooks.map((_,j)=>j));
+  if (checked) window._scanChecked.add(i);
+  else window._scanChecked.delete(i);
+  showBulkConfirm();
+}
+
+function deleteCheckedScanned() {
+  if (!window._scanChecked) return;
+  const keep = scannedBooks.filter((_, i) => !window._scanChecked.has(i));
+  const keepISBNs = new Set(keep.map(b => b.isbn));
+  scannedBooks = keep;
+  scannedISBNs = keepISBNs;
+  window._scanChecked = new Set(scannedBooks.map((_,i)=>i));
+  if (scannedBooks.length === 0) {
+    document.getElementById('scan-confirm-modal').classList.remove('open');
+    document.getElementById('scan-count-bar').style.display = 'none';
+    return;
+  }
+  document.getElementById('scan-count-label').textContent = `${scannedBooks.length}冊読み取り済み`;
+  showBulkConfirm();
 }
 
 function toggleScannedSeries(i, checked) {
