@@ -170,6 +170,31 @@
   .book-card.dragging { opacity: 0.4; }
   .book-card.drag-over { border: 2px dashed var(--accent); }
 
+  /* Series group */
+  .series-group {
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(26,26,46,0.08);
+  }
+  .series-header {
+    background: var(--ink);
+    color: var(--paper);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .series-folder-icon { font-size: 20px; flex-shrink: 0; }
+  .series-info { flex: 1; min-width: 0; }
+  .series-name { font-family: "Noto Serif JP", serif; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .series-meta { font-size: 11px; color: var(--accent-light); margin-top: 2px; }
+  .series-chevron { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .series-books { display: flex; flex-direction: column; }
+  .book-card.in-series { border-radius: 0; box-shadow: none; border-top: 1px solid var(--warm); }
+  .book-card.in-series:last-child { border-radius: 0 0 10px 10px; }
+
   /* Genre badge */
   .genre-badge {
     font-size: 10px;
@@ -736,6 +761,15 @@
         <input type="text" id="f-title" placeholder="本のタイトル">
       </div>
       <div class="form-group">
+        <label>シリーズ名</label>
+        <input type="text" id="f-series" placeholder="例：落ちぶれゼウスと奴隷の子" list="series-list" autocomplete="off">
+        <datalist id="series-list"></datalist>
+      </div>
+      <div class="form-group">
+        <label>巻数</label>
+        <input type="number" id="f-volume" placeholder="例：1" min="1" style="width:100px;">
+      </div>
+      <div class="form-group">
         <label>著者</label>
         <input type="text" id="f-author" placeholder="著者名">
       </div>
@@ -833,31 +867,42 @@ function render() {
   const statusClass = { unread: 'status-unread', reading: 'status-reading', done: 'status-done' };
   const isManual = currentSort === 'manual';
 
-  el.innerHTML = list.map(b => `
-    <div class="book-card" data-id="${b.id}" draggable="${isManual}">
-      <div class="book-spine" style="background:${spineColor(b.title)}"></div>
-      <div class="book-cover-thumb">
-        ${b.cover
-          ? `<img src="${b.cover}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-          : ''}
-        <div class="no-cover" ${b.cover ? 'style="display:none"' : ''}>📕</div>
-      </div>
-      <div class="book-info">
-        <div class="book-title">${esc(b.title)}</div>
-        <div class="book-author">${esc(b.author || '著者不明')}</div>
-        <div class="book-meta">
-          <span class="status-badge ${statusClass[b.status]} status-cycle" data-id="${b.id}">${statusLabel[b.status]}</span>
-          ${b.genre ? `<span class="genre-badge">${esc(b.genre)}</span>` : ''}
-          <span class="book-date">${b.date}</span>
-        </div>
-      </div>
-      <div class="book-actions">
-        <button class="icon-btn" title="編集" onclick="editBook('${b.id}')">✏️</button>
-        <button class="icon-btn" title="削除" onclick="deleteBook('${b.id}')">🗑️</button>
-        <div class="drag-handle ${isManual ? 'visible' : ''}" title="ドラッグで並び替え">⋮⋮</div>
-      </div>
-    </div>
-  `).join('');
+  // シリーズでグループ化
+  const groups = [];
+  const seriesMap = {};
+  list.forEach(b => {
+    if (b.series) {
+      if (!seriesMap[b.series]) {
+        seriesMap[b.series] = { series: b.series, books: [], open: openSeries.has(b.series) };
+        groups.push(seriesMap[b.series]);
+      }
+      seriesMap[b.series].books.push(b);
+    } else {
+      groups.push({ series: null, book: b });
+    }
+  });
+
+  el.innerHTML = groups.map(g => {
+    if (g.series) {
+      // シリーズグループ
+      const sorted = [...g.books].sort((a, b) => (parseInt(a.volume)||0) - (parseInt(b.volume)||0));
+      const doneCount = sorted.filter(b => b.status === 'done').length;
+      return `
+        <div class="series-group">
+          <div class="series-header" onclick="toggleSeries('${esc(g.series)}')">
+            <div class="series-folder-icon">${g.open ? '📂' : '📁'}</div>
+            <div class="series-info">
+              <div class="series-name">${esc(g.series)}</div>
+              <div class="series-meta">${sorted.length}冊・読了${doneCount}冊</div>
+            </div>
+            <div class="series-chevron">${g.open ? '▲' : '▼'}</div>
+          </div>
+          ${g.open ? `<div class="series-books">${sorted.map(b => bookCardHtml(b, isManual, statusLabel, statusClass, true)).join('')}</div>` : ''}
+        </div>`;
+    } else {
+      return bookCardHtml(g.book, isManual, statusLabel, statusClass, false);
+    }
+  }).join('');
 
   // status cycle
   document.querySelectorAll('.status-cycle').forEach(el => {
@@ -947,6 +992,38 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function bookCardHtml(b, isManual, statusLabel, statusClass, inSeries) {
+  return `
+    <div class="book-card ${inSeries ? 'in-series' : ''}" data-id="${b.id}" draggable="${isManual}">
+      <div class="book-spine" style="background:${spineColor(b.title)}"></div>
+      <div class="book-cover-thumb">
+        ${b.cover ? `<img src="${b.cover}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">` : ''}
+        <div class="no-cover" ${b.cover ? 'style="display:none"' : ''}>📕</div>
+      </div>
+      <div class="book-info">
+        <div class="book-title">${inSeries && b.volume ? `${b.volume}巻` : esc(b.title)}</div>
+        <div class="book-author">${esc(b.author || '著者不明')}</div>
+        <div class="book-meta">
+          <span class="status-badge ${statusClass[b.status]} status-cycle" data-id="${b.id}">${statusLabel[b.status]}</span>
+          ${b.genre ? `<span class="genre-badge">${esc(b.genre)}</span>` : ''}
+          <span class="book-date">${b.date}</span>
+        </div>
+      </div>
+      <div class="book-actions">
+        <button class="icon-btn" title="編集" onclick="editBook('${b.id}')">✏️</button>
+        <button class="icon-btn" title="削除" onclick="deleteBook('${b.id}')">🗑️</button>
+        <div class="drag-handle ${isManual ? 'visible' : ''}" title="ドラッグで並び替え">⋮⋮</div>
+      </div>
+    </div>`;
+}
+
+let openSeries = new Set();
+function toggleSeries(name) {
+  if (openSeries.has(name)) openSeries.delete(name);
+  else openSeries.add(name);
+  render();
+}
+
 // ─── Filters ────────────────────────────────────────────────────────────────
 document.querySelectorAll('.filter-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -977,8 +1054,9 @@ function openModal() {
 
 function updateGenreList() {
   const genres = [...new Set(books.map(b => b.genre).filter(Boolean))];
-  const dl = document.getElementById('genre-list');
-  dl.innerHTML = genres.map(g => `<option value="${esc(g)}">`).join('');
+  document.getElementById('genre-list').innerHTML = genres.map(g => `<option value="${esc(g)}">`).join('');
+  const series = [...new Set(books.map(b => b.series).filter(Boolean))];
+  document.getElementById('series-list').innerHTML = series.map(s => `<option value="${esc(s)}">`).join('');
 }
 
 function closeModal() {
@@ -1278,6 +1356,8 @@ document.getElementById('save-btn').addEventListener('click', () => {
       b.cover = document.getElementById('f-cover').value;
       b.isbn = document.getElementById('f-isbn').value;
       b.genre = document.getElementById('f-genre').value.trim();
+      b.series = document.getElementById('f-series').value.trim();
+      b.volume = document.getElementById('f-volume').value.trim();
     }
     showToast('✏️ 更新しました');
   } else {
@@ -1291,6 +1371,8 @@ document.getElementById('save-btn').addEventListener('click', () => {
       cover: document.getElementById('f-cover').value,
       isbn: document.getElementById('f-isbn').value,
       genre: document.getElementById('f-genre').value.trim(),
+      series: document.getElementById('f-series').value.trim(),
+      volume: document.getElementById('f-volume').value.trim(),
       date: today,
       order: Date.now()
     });
@@ -1314,6 +1396,8 @@ function editBook(id) {
     document.getElementById('f-cover').value = b.cover || '';
     document.getElementById('f-isbn').value = b.isbn || '';
     document.getElementById('f-genre').value = b.genre || '';
+    document.getElementById('f-series').value = b.series || '';
+    document.getElementById('f-volume').value = b.volume || '';
     document.getElementById('edit-id').value = b.id;
     document.getElementById('save-btn').textContent = '変更を保存する';
     // switch to manual tab
@@ -1332,7 +1416,7 @@ function deleteBook(id) {
 }
 
 function clearForm() {
-  ['f-title','f-author','f-publisher','f-genre','f-memo','f-cover','f-isbn','edit-id','isbn-input'].forEach(id => {
+  ['f-title','f-author','f-publisher','f-genre','f-series','f-volume','f-memo','f-cover','f-isbn','edit-id','isbn-input'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
