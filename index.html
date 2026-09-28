@@ -758,11 +758,11 @@
     <div id="book-form">
       <div class="form-group">
         <label>タイトル *</label>
-        <input type="text" id="f-title" placeholder="本のタイトル">
+        <input type="text" id="f-title" placeholder="本のタイトル" oninput="const s=document.getElementById('f-series');if(!s.dataset.edited)s.value=this.value;">
       </div>
       <div class="form-group">
         <label>シリーズ名</label>
-        <input type="text" id="f-series" placeholder="例：落ちぶれゼウスと奴隷の子" list="series-list" autocomplete="off">
+        <input type="text" id="f-series" placeholder="例：落ちぶれゼウスと奴隷の子" list="series-list" autocomplete="off" oninput="this.dataset.edited='1'">
         <datalist id="series-list"></datalist>
       </div>
       <div class="form-group">
@@ -1200,6 +1200,8 @@ function bulkRegister() {
       title: b.title, author: b.author, publisher: b.publisher,
       cover: b.cover, isbn: b.isbn,
       genre: '', status: 'unread', memo: '',
+      series: b.series || '',
+      volume: b.volume || '',
       date: today, order: Date.now()
     });
   });
@@ -1219,18 +1221,37 @@ function showBulkConfirm() {
   }
 
   const list = document.getElementById('scan-confirm-list');
+  const seriesOptions = [...new Set(books.map(b => b.series).filter(Boolean))];
   list.innerHTML = scannedBooks.map((b, i) => `
-    <div style="display:flex;align-items:center;gap:10px;background:white;border-radius:10px;padding:10px;position:relative;">
-      <div style="width:44px;height:60px;background:var(--warm);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">
-        ${b.cover ? `<img src="${b.cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">` : '📕'}
+    <div style="background:white;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:44px;height:60px;background:var(--warm);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">
+          ${b.cover ? `<img src="${b.cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">` : '📕'}
+        </div>
+        <div style="flex:1;min-width:0;">
+          <input value="${esc(b.title)}" onchange="scannedBooks[${i}].title=this.value"
+            style="width:100%;font-size:14px;font-weight:600;border:none;border-bottom:1px solid var(--warm);background:none;padding:2px 0;font-family:inherit;color:var(--ink);outline:none;">
+          <input value="${esc(b.author||'')}" placeholder="著者名" onchange="scannedBooks[${i}].author=this.value"
+            style="width:100%;font-size:12px;color:var(--muted);border:none;background:none;padding:2px 0;font-family:inherit;outline:none;margin-top:4px;">
+        </div>
+        <button onclick="removeScanned(${i})" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ccc;flex-shrink:0;align-self:flex-start;">✕</button>
       </div>
-      <div style="flex:1;min-width:0;">
-        <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(b.title)}</div>
-        <div style="font-size:12px;color:var(--muted);">${esc(b.author || '著者不明')}</div>
+      <div style="display:flex;align-items:center;gap:8px;padding-top:4px;border-top:1px solid var(--warm);">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;">
+          <input type="checkbox" ${b.series ? 'checked' : ''} onchange="toggleScannedSeries(${i}, this.checked)"
+            style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;">
+          シリーズ化する
+        </label>
+        ${b.series !== undefined ? `
+        <input value="${esc(b.series||b.title)}" placeholder="シリーズ名" onchange="scannedBooks[${i}].series=this.value"
+          list="scan-series-list"
+          style="flex:1;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 8px;font-family:inherit;outline:none;" ${b.series===undefined?'disabled':''}>
+        <input type="number" value="${esc(b.volume||'')}" placeholder="巻" min="1" onchange="scannedBooks[${i}].volume=this.value"
+          style="width:52px;font-size:12px;border:1px solid var(--warm);border-radius:6px;padding:4px 6px;font-family:inherit;outline:none;">
+        ` : ''}
       </div>
-      <button onclick="removeScanned(${i})" style="background:none;border:none;font-size:18px;cursor:pointer;color:#ccc;flex-shrink:0;">✕</button>
     </div>
-  `).join('');
+  `).join('') + `<datalist id="scan-series-list">${seriesOptions.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>`;
 
   document.getElementById('scan-confirm-modal').classList.add('open');
 
@@ -1257,6 +1278,17 @@ function showBulkConfirm() {
   document.getElementById('scan-confirm-cancel').onclick = () => {
     document.getElementById('scan-confirm-modal').classList.remove('open');
   };
+}
+
+function toggleScannedSeries(i, checked) {
+  if (checked) {
+    scannedBooks[i].series = scannedBooks[i].title;
+    scannedBooks[i].volume = '';
+  } else {
+    scannedBooks[i].series = undefined;
+    scannedBooks[i].volume = undefined;
+  }
+  showBulkConfirm();
 }
 
 function removeScanned(i) {
@@ -1416,6 +1448,7 @@ function deleteBook(id) {
 }
 
 function clearForm() {
+  document.getElementById('f-series').dataset.edited='';
   ['f-title','f-author','f-publisher','f-genre','f-series','f-volume','f-memo','f-cover','f-isbn','edit-id','isbn-input'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
