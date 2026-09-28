@@ -663,7 +663,10 @@
 
 <header>
   <div class="logo">ほん<span>だな</span></div>
-  <div class="header-stats"><strong id="total-count">0</strong><br>冊</div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <button id="select-mode-btn" onclick="toggleSelectMode()" style="background:none;border:1px solid rgba(255,255,255,0.3);color:var(--paper);border-radius:99px;padding:6px 14px;font-family:inherit;font-size:12px;cursor:pointer;">選択</button>
+    <div class="header-stats"><strong id="total-count">0</strong><br>冊</div>
+  </div>
 </header>
 
 <main>
@@ -693,6 +696,14 @@
     <p>まだ本がありません。<br>右下のボタンから最初の1冊を登録してみましょう。</p>
   </div>
 </main>
+
+<div class="select-mode-bar" id="select-mode-bar">
+  <span class="sel-count" id="sel-count-label">0冊選択中</span>
+  <div style="display:flex;gap:8px;">
+    <button class="sel-cancel-btn" onclick="toggleSelectMode()">キャンセル</button>
+    <button class="sel-delete-btn" onclick="deleteSelected()">削除</button>
+  </div>
+</div>
 
 <button class="fab" id="add-btn">＋ 本を追加</button>
 
@@ -1009,6 +1020,7 @@ function bookCardHtml(b, isManual, statusLabel, statusClass, inSeries) {
           <span class="book-date">${b.date}</span>
         </div>
       </div>
+      <div class="book-sel-check">✓</div>
       <div class="book-actions">
         <button class="icon-btn" title="編集" onclick="editBook('${b.id}')">✏️</button>
         <button class="icon-btn" title="削除" onclick="deleteBook('${b.id}')">🗑️</button>
@@ -1217,26 +1229,27 @@ function bulkRegister() {
   closeModal();
 }
 
+// チェック状態はscannedBooks自体に持たせる
 function showBulkConfirm() {
   if (scannedBooks.length === 0) {
     showToast('まだ読み取った本がありません');
     return;
   }
+  // 初回は全部チェック済み
+  scannedBooks.forEach(b => { if (b.checked === undefined) b.checked = true; });
 
   const list = document.getElementById('scan-confirm-list');
   const seriesOptions = [...new Set(books.map(b => b.series).filter(Boolean))];
-  const checkedSet = window._scanChecked || new Set(scannedBooks.map((_, i) => i));
-  window._scanChecked = checkedSet;
 
   list.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
       <span style="font-size:12px;color:var(--muted);">${scannedBooks.length}冊読み取り済み</span>
-      <button onclick="deleteCheckedScanned()" style="font-size:12px;color:#e53935;background:none;border:none;cursor:pointer;padding:4px 8px;">選択削除</button>
+      <button onclick="deleteCheckedScanned()" style="font-size:12px;color:#e53935;background:none;border:none;cursor:pointer;padding:4px 8px;border:1px solid #e53935;border-radius:6px;">チェックした本を削除</button>
     </div>
   ` + scannedBooks.map((b, i) => `
-    <div class="scan-card" style="background:white;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;opacity:${checkedSet.has(i)?1:0.4};">
+    <div id="scan-card-${i}" style="background:white;border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;opacity:${b.checked?1:0.4};transition:opacity 0.15s;">
       <div style="display:flex;align-items:center;gap:10px;">
-        <input type="checkbox" ${checkedSet.has(i)?'checked':''} onchange="toggleScanCheck(${i},this.checked)" onclick="void(0)"
+        <input type="checkbox" id="chk-${i}" ${b.checked?'checked':''} onchange="onScanCheck(${i},this.checked)"
           style="width:18px;height:18px;accent-color:var(--accent);flex-shrink:0;cursor:pointer;">
         <div style="width:44px;height:60px;background:var(--warm);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;">
           ${b.cover ? `<img src="${b.cover}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='📕'">` : '📕'}
@@ -1266,34 +1279,26 @@ function showBulkConfirm() {
   `).join('') + `<datalist id="scan-series-list">${seriesOptions.map(s=>`<option value="${esc(s)}">`).join('')}</datalist>`;
 
   document.getElementById('scan-confirm-modal').classList.add('open');
-
   document.getElementById('scan-confirm-cancel').onclick = () => {
     document.getElementById('scan-confirm-modal').classList.remove('open');
   };
 }
 
-function toggleScanCheck(i, checked) {
-  if (!window._scanChecked) window._scanChecked = new Set(scannedBooks.map((_,j)=>j));
-  if (checked) window._scanChecked.add(i);
-  else window._scanChecked.delete(i);
-  // 再描画せずスタイルだけ変える
-  const cards = document.querySelectorAll('#scan-confirm-list .scan-card');
-  if (cards[i]) cards[i].style.opacity = checked ? '1' : '0.4';
+function onScanCheck(i, checked) {
+  scannedBooks[i].checked = checked;
+  const card = document.getElementById('scan-card-' + i);
+  if (card) card.style.opacity = checked ? '1' : '0.4';
 }
 
 function deleteCheckedScanned() {
-  if (!window._scanChecked) return;
-  const keep = scannedBooks.filter((_, i) => !window._scanChecked.has(i));
-  const keepISBNs = new Set(keep.map(b => b.isbn));
-  scannedBooks = keep;
-  scannedISBNs = keepISBNs;
-  window._scanChecked = new Set(scannedBooks.map((_,i)=>i));
+  scannedBooks = scannedBooks.filter(b => !b.checked);
+  scannedISBNs = new Set(scannedBooks.map(b => b.isbn));
+  document.getElementById('scan-count-label').textContent = `${scannedBooks.length}冊読み取り済み`;
   if (scannedBooks.length === 0) {
     document.getElementById('scan-confirm-modal').classList.remove('open');
     document.getElementById('scan-count-bar').style.display = 'none';
     return;
   }
-  document.getElementById('scan-count-label').textContent = `${scannedBooks.length}冊読み取り済み`;
   showBulkConfirm();
 }
 
@@ -1479,6 +1484,53 @@ function clearForm() {
   document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===0));
   document.getElementById('tab-scan').classList.add('visible');
   document.getElementById('tab-isbn').classList.remove('visible');
+}
+
+// ─── Select Mode ─────────────────────────────────────────────────────────────
+let selectMode = false;
+let selectedIds = new Set();
+
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  selectedIds.clear();
+  const bar = document.getElementById('select-mode-bar');
+  const btn = document.getElementById('select-mode-btn');
+  const list = document.getElementById('book-list');
+  const fab = document.getElementById('add-btn');
+  if (selectMode) {
+    bar.classList.add('visible');
+    list.classList.add('select-mode');
+    btn.textContent = 'キャンセル';
+    fab.style.display = 'none';
+  } else {
+    bar.classList.remove('visible');
+    list.classList.remove('select-mode');
+    btn.textContent = '選択';
+    fab.style.display = '';
+  }
+  updateSelCount();
+}
+
+function updateSelCount() {
+  document.getElementById('sel-count-label').textContent = `${selectedIds.size}冊選択中`;
+}
+
+function toggleSelectBook(id) {
+  if (!selectMode) return;
+  if (selectedIds.has(id)) selectedIds.delete(id);
+  else selectedIds.add(id);
+  const card = document.querySelector(`.book-card[data-id="${id}"]`);
+  if (card) card.classList.toggle('selected', selectedIds.has(id));
+  updateSelCount();
+}
+
+function deleteSelected() {
+  if (selectedIds.size === 0) { showToast('本を選択してください'); return; }
+  if (!confirm(`${selectedIds.size}冊を削除しますか？`)) return;
+  books = books.filter(b => !selectedIds.has(b.id));
+  save(); render();
+  toggleSelectMode();
+  showToast(`🗑️ ${selectedIds.size}冊を削除しました`);
 }
 
 // ─── Init ───────────────────────────────────────────────────────────────────
