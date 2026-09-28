@@ -806,7 +806,7 @@ function render() {
 
   // sort
   if (currentSort === 'title') {
-    list.sort((a, b) => (a.title||'').localeCompare(b.title||'', 'ja'));
+    list.sort((a, b) => (a.title||'').localeCompare(b.title||'', 'ja', { numeric: true }));
   } else if (currentSort === 'author') {
     list.sort((a, b) => (a.author||'').localeCompare(b.author||'', 'ja'));
   } else if (currentSort === 'genre') {
