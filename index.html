@@ -1076,7 +1076,7 @@ async function addScannedISBN(isbn) {
     const openData = await openRes.json();
     if (openData && openData[0]) {
       const summary = openData[0].summary;
-      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：].*/g, '').trim();
+      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim();
       author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
       publisher = summary.publisher || '';
       cover = summary.cover || '';
@@ -1215,7 +1215,7 @@ async function fetchBookByISBN(isbn, source) {
 
     if (openData && openData[0]) {
       const summary = openData[0].summary;
-      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：].*/g, '').trim();
+      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim();
       author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
       publisher = summary.publisher || '';
       cover = summary.cover || '';
