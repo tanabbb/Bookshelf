@@ -1182,30 +1182,22 @@ async function addScannedISBN(isbn) {
   let title = '', author = '', publisher = '', cover = '';
 
   try {
-    const openRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
-    const openData = await openRes.json();
-    if (openData && openData[0]) {
-      const summary = openData[0].summary;
-      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim();
-      author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
-      publisher = summary.publisher || '';
-      cover = summary.cover || '';
+    const ndl = await fetchFromNDL(isbn);
+    if (ndl && ndl.title) {
+      title = ndl.title; author = ndl.author; publisher = ndl.publisher;
     }
   } catch(e) {}
 
-  if (!title) {
-    try {
-      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const gData = await gRes.json();
-      if (gData.totalItems > 0) {
-        const info = gData.items[0].volumeInfo;
-        title = info.title || '';
-        author = (info.authors || []).join(' ');
-        publisher = info.publisher || '';
-        cover = info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
-      }
-    } catch(e) {}
-  }
+  // Google Booksで補完（表紙画像・タイトル未取得時）
+  try {
+    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+    const gData = await gRes.json();
+    if (gData.totalItems > 0) {
+      const info = gData.items[0].volumeInfo;
+      if (!title) { title = (info.title||'').replace(/[:：=＝].*/g,'').trim(); author = (info.authors||[]).join(' '); publisher = info.publisher||''; }
+      cover = info.imageLinks?.thumbnail?.replace('http:','https:') || '';
+    }
+  } catch(e) {}
 
   document.getElementById('scan-fetching').classList.remove('show');
 
@@ -1343,6 +1335,24 @@ function removeScanned(i) {
   }
 }
 
+async function fetchFromNDL(isbn) {
+  // 国立国会図書館 書誌情報API
+  const url = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
+  const res = await fetch(url);
+  const text = await res.text();
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(text, 'text/xml');
+  const item = xml.querySelector('item');
+  if (!item) return null;
+
+  const getText = tag => item.querySelector(tag)?.textContent?.trim() || '';
+  const title = getText('title').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim();
+  const author = getText('author').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
+  const publisher = getText('publisher');
+  // NDLは表紙画像を提供していないのでGoogle Booksで補完
+  return { title, author, publisher, cover: '' };
+}
+
 // ─── ISBN lookup ─────────────────────────────────────────────────────────────
 document.getElementById('isbn-lookup-btn').addEventListener('click', () => {
   const isbn = document.getElementById('isbn-input').value.replace(/[-\s]/g,'');
@@ -1361,33 +1371,23 @@ async function fetchBookByISBN(isbn, source) {
   let title = '', author = '', publisher = '', cover = '';
 
   try {
-    // 1st: OpenBD（日本の書籍に強い）
-    const openRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
-    const openData = await openRes.json();
-
-    if (openData && openData[0]) {
-      const summary = openData[0].summary;
-      title = (summary.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim();
-      author = (summary.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-\d*\s*/g, '').trim();
-      publisher = summary.publisher || '';
-      cover = summary.cover || '';
+    // 1st: 国立国会図書館API
+    const ndl = await fetchFromNDL(isbn);
+    if (ndl && ndl.title) {
+      title = ndl.title; author = ndl.author; publisher = ndl.publisher;
     }
   } catch(e) {}
 
-  // 2nd: Google Books（カバーがない場合など補完）
-  if (!title) {
-    try {
-      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-      const gData = await gRes.json();
-      if (gData.totalItems > 0) {
-        const info = gData.items[0].volumeInfo;
-        title = title || info.title || '';
-        author = author || (info.authors || []).join(' ');
-        publisher = publisher || info.publisher || '';
-        cover = cover || info.imageLinks?.thumbnail?.replace('http:', 'https:') || '';
-      }
-    } catch(e) {}
-  }
+  // 2nd: Google Books（表紙画像・タイトル未取得時に補完）
+  try {
+    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+    const gData = await gRes.json();
+    if (gData.totalItems > 0) {
+      const info = gData.items[0].volumeInfo;
+      if (!title) { title = (info.title||'').replace(/[:：=＝].*/g,'').trim(); author = (info.authors||[]).join(' '); publisher = info.publisher||''; }
+      cover = cover || info.imageLinks?.thumbnail?.replace('http:','https:') || '';
+    }
+  } catch(e) {}
 
   document.getElementById(fetchId).classList.remove('show');
 
