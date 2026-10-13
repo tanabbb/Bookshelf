@@ -1206,7 +1206,7 @@ async function addScannedISBN(isbn) {
     showToast('書籍が見つかりませんでした。スキップします。');
   } else {
     scannedISBNs.add(isbn);
-    scannedBooks.push({ isbn, title, author, publisher, cover, volume, series });
+    scannedBooks.push({ isbn, title, author, publisher, cover, volume, series: title });
     const bar = document.getElementById('scan-count-bar');
     bar.style.display = 'block';
     document.getElementById('scan-count-label').textContent = `${scannedBooks.length}冊読み取り済み`;
@@ -1415,12 +1415,10 @@ async function fetchBookByISBN(isbn, source) {
   document.getElementById('f-publisher').value = publisher;
   document.getElementById('f-isbn').value = isbn;
   document.getElementById('f-cover').value = '';
-  if (ndlSeries) {
-    document.getElementById('f-series').value = ndlSeries;
-    document.getElementById('f-series').dataset.edited = '1';
-  } else {
-    document.getElementById('f-series').dataset.edited = '';
-  }
+  // シリーズ名はタイトルをそのままコピー
+  const seriesEl = document.getElementById('f-series');
+  seriesEl.value = title;
+  seriesEl.dataset.edited = '1';
   if (ndlVolume) document.getElementById('f-volume').value = ndlVolume;
 
   showToast('✅ 書籍情報を取得しました！');
