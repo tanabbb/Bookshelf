@@ -628,7 +628,10 @@
     transition: all 0.3s;
     z-index: 999;
     pointer-events: none;
-    white-space: nowrap;
+    white-space: normal;
+    max-width: 90vw;
+    text-align: center;
+    line-height: 1.5;
   }
 
   .toast.show {
@@ -1179,31 +1182,12 @@ function stopScanner() {
 // ─── Scan Bulk Mode ──────────────────────────────────────────────────────────
 async function addScannedISBN(isbn) {
   document.getElementById('scan-fetching').classList.add('show');
-  let title = '', author = '', publisher = '', cover = '';
-
-  let volume = '', series = '';
-  try {
-    const ndl = await fetchFromNDL(isbn);
-    if (ndl && ndl.title) {
-      title = ndl.title; author = ndl.author; publisher = ndl.publisher;
-      volume = ndl.volume || ''; series = ndl.series || '';
-    }
-  } catch(e) {}
-
-  // Google Booksで表紙画像のみ補完
-  try {
-    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-    const gData = await gRes.json();
-    if (gData.totalItems > 0) {
-      const info = gData.items[0].volumeInfo;
-      if (!title) { title = (info.title||'').replace(/[:：=＝].*/g,'').trim(); author = (info.authors||[]).join(' '); publisher = info.publisher||''; }
-    }
-  } catch(e) {}
-
+  const r = await lookupBook(isbn);
+  const title = r.title, author = r.author, publisher = r.publisher, volume = r.volume, cover = '';
   document.getElementById('scan-fetching').classList.remove('show');
 
   if (!title) {
-    showToast('書籍が見つかりませんでした。スキップします。');
+    showToast(`見つかりませんでした（${r.note}）`);
   } else {
     scannedISBNs.add(isbn);
     scannedBooks.push({ isbn, title, author, publisher, cover, volume, series: title });
@@ -1366,6 +1350,69 @@ async function fetchFromNDL(isbn) {
   return { title, author, publisher, volume, series };
 }
 
+// 3つの検索先に同時に問い合わせ、先に見つかったデータを優先順で採用
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))
+  ]);
+}
+
+async function fetchFromOpenBD(isbn) {
+  const res = await fetch(`https://api.openbd.jp/v1/get?isbn=${isbn}`);
+  const data = await res.json();
+  if (!data || !data[0]) return null;
+  const sm = data[0].summary;
+  return {
+    title: (sm.title || '').replace(/[\(（].*?[\)）]/g, '').replace(/[:：=＝].*/g, '').trim(),
+    author: (sm.author || '').replace(/,/g, ' ').replace(/\s*\d{4}-?\d*\s*/g, '').trim(),
+    publisher: sm.publisher || '',
+    volume: sm.volume || ''
+  };
+}
+
+async function fetchFromGoogle(isbn) {
+  const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
+  const data = await res.json();
+  if (!data.totalItems) return null;
+  const info = data.items[0].volumeInfo;
+  return {
+    title: (info.title || '').replace(/[:：=＝].*/g, '').trim(),
+    author: (info.authors || []).join(' '),
+    publisher: info.publisher || '',
+    volume: ''
+  };
+}
+
+async function lookupBook(isbn) {
+  const sources = [
+    ['国会図書館', fetchFromNDL],
+    ['OpenBD', fetchFromOpenBD],
+    ['Google', fetchFromGoogle]
+  ];
+  // 3つ同時に問い合わせ（6秒でタイムアウト）
+  const results = await Promise.all(sources.map(async ([name, fn]) => {
+    try {
+      const r = await withTimeout(fn(isbn), 6000);
+      return { name, data: (r && r.title) ? r : null, status: (r && r.title) ? 'ok' : 'なし' };
+    } catch (e) {
+      return { name, data: null, status: e.message === 'timeout' ? '時間切れ' : '通信失敗' };
+    }
+  }));
+
+  const pick = key => {
+    for (const r of results) { if (r.data && r.data[key]) return r.data[key]; }
+    return '';
+  };
+  return {
+    title: pick('title'),
+    author: pick('author'),
+    publisher: pick('publisher'),
+    volume: pick('volume'),
+    note: results.map(r => `${r.name}:${r.status}`).join(' / ')
+  };
+}
+
 // ─── ISBN lookup ─────────────────────────────────────────────────────────────
 document.getElementById('isbn-lookup-btn').addEventListener('click', () => {
   const isbn = document.getElementById('isbn-input').value.replace(/[-\s]/g,'');
@@ -1381,32 +1428,13 @@ async function fetchBookByISBN(isbn, source) {
   const fetchId = source === 'scan' ? 'scan-fetching' : 'isbn-fetching';
   document.getElementById(fetchId).classList.add('show');
 
-  let title = '', author = '', publisher = '', cover = '';
-
-  let ndlVolume = '', ndlSeries = '';
-  try {
-    // 1st: 国立国会図書館API
-    const ndl = await fetchFromNDL(isbn);
-    if (ndl && ndl.title) {
-      title = ndl.title; author = ndl.author; publisher = ndl.publisher;
-      ndlVolume = ndl.volume || ''; ndlSeries = ndl.series || '';
-    }
-  } catch(e) {}
-
-  // 2nd: Google Books（タイトル未取得時のみ補完）
-  try {
-    const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-    const gData = await gRes.json();
-    if (gData.totalItems > 0) {
-      const info = gData.items[0].volumeInfo;
-      if (!title) { title = (info.title||'').replace(/[:：=＝].*/g,'').trim(); author = (info.authors||[]).join(' '); publisher = info.publisher||''; }
-    }
-  } catch(e) {}
+  const r = await lookupBook(isbn);
+  const title = r.title, author = r.author, publisher = r.publisher, ndlVolume = r.volume;
 
   document.getElementById(fetchId).classList.remove('show');
 
   if (!title) {
-    showToast('書籍が見つかりませんでした。手動で入力してください。');
+    showToast(`見つかりませんでした（${r.note}）`);
     return;
   }
 
